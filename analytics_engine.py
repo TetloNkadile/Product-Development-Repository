@@ -555,4 +555,4 @@ def insight_text(data):
         "risk": f"{weak_region['region']} shows weaker opportunity performance and may require campaign or sales review.",
         "recommendation": "Prioritise budget and sales focus toward high-growth regions while reviewing underperforming areas.",
     }
-    }
+    
