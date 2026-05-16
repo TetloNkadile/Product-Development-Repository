@@ -2686,29 +2686,221 @@ def distribution_controls_panel() -> None:
 
 
 def report_builder_compact(data: Dict[str, pd.DataFrame]) -> None:
-    ai = make_ai(data, "Report")
     render_html("<div class='report-card-title'>Live Report Configurator and Preview</div>")
+
+    sales = df(data, "sales")
+    marketing = df(data, "marketing")
+    advertising = df(data, "advertising")
+    hr = df(data, "hr")
+    customers = df(data, "customers")
 
     title = st.text_input(
         "Report title",
-        "NEXUS BI Executive Decision Report",
+        "CYBER NOVA BI Executive Decision Report",
         key="report_builder_title",
     )
 
-    control_left, control_right = st.columns([1.25, 1], gap="small")
-    with control_left:
+    control_a, control_b, control_c = st.columns([1, 1, 1], gap="small")
+
+    with control_a:
+        report_department = st.selectbox(
+            "Report focus",
+            ["Executive Overview", "Sales", "Marketing and Advertising", "HR", "Regional Performance"],
+            key="report_focus_area",
+        )
+
+    with control_b:
+        report_region = st.selectbox(
+            "Report region",
+            ["All"] + sorted(sales["region"].dropna().unique().tolist()) if "region" in sales.columns else ["All"],
+            key="report_region_filter",
+        )
+
+    with control_c:
+        report_kpi = st.selectbox(
+            "Primary KPI",
+            ["Revenue", "Profit", "ROI", "Conversions", "ROAS", "Win Rate", "Performance Score"],
+            key="report_primary_kpi",
+        )
+
+    control_d, control_e = st.columns([1.4, 1], gap="small")
+
+    with control_d:
         selected_sections = st.multiselect(
-            "Sections",
-            ["Executive Summary", "KPI Summary", "Sales", "Marketing", "HR", "Forecast", "Recommendations"],
+            "Report sections",
+            [
+                "Executive Summary",
+                "KPI Summary",
+                "Department Analysis",
+                "Regional Analysis",
+                "Forecast Summary",
+                "Recommendations",
+            ],
             default=["Executive Summary", "KPI Summary", "Recommendations"],
             key="report_builder_sections",
         )
-    with control_right:
+
+    with control_e:
         chart_type = st.selectbox(
-            "Primary chart type",
+            "Report visual emphasis",
             ["Executive Snapshot", "Trend", "Map", "Forecast", "KPI Pack"],
             key="report_builder_chart_type",
         )
+
+    filtered_data = {
+        "sales": sales.copy(),
+        "marketing": marketing.copy(),
+        "advertising": advertising.copy(),
+        "hr": hr.copy(),
+        "customers": customers.copy(),
+        "web": df(data, "web").copy(),
+    }
+
+    if report_region != "All":
+        for key, frame in filtered_data.items():
+            if isinstance(frame, pd.DataFrame) and not frame.empty and "region" in frame.columns:
+                filtered_data[key] = frame[frame["region"] == report_region]
+
+    k = executive_kpis(filtered_data)
+    ai = make_ai(filtered_data, "Report")
+
+    sales_metrics_data = sales_metrics(filtered_data)
+    marketing_metrics_data = marketing_metrics(filtered_data)
+    advertising_metrics_data = advertising_metrics(filtered_data)
+    hr_metrics_data = hr_metrics(filtered_data)
+
+    report_lines = [
+        title,
+        "=" * len(title),
+        f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Report focus: {report_department}",
+        f"Region: {report_region}",
+        f"Primary KPI: {report_kpi}",
+        f"Visual emphasis: {chart_type}",
+        "",
+    ]
+
+    if "Executive Summary" in selected_sections:
+        report_lines.extend([
+            "EXECUTIVE SUMMARY",
+            str(ai.get("summary", "No executive summary available.")),
+            "",
+        ])
+
+    if "KPI Summary" in selected_sections:
+        report_lines.extend([
+            "KPI SUMMARY",
+            f"Revenue: {money(k.get('revenue', 0))}",
+            f"Profit: {money(k.get('profit', 0))}",
+            f"ROI: {pct(k.get('roi', 0))}",
+            f"Conversions: {float(k.get('conversions', 0)):,.0f}",
+            "",
+        ])
+
+    if "Department Analysis" in selected_sections:
+        report_lines.append("DEPARTMENT ANALYSIS")
+
+        if report_department in ["Executive Overview", "Sales"]:
+            report_lines.extend([
+                f"Sales Pipeline Value: {money(sales_metrics_data.get('pipeline_value', 0))}",
+                f"Sales Win Rate: {pct(sales_metrics_data.get('win_rate', 0))}",
+                f"Average Deal Size: {money(sales_metrics_data.get('avg_deal_size', 0))}",
+                "",
+            ])
+
+        if report_department in ["Executive Overview", "Marketing and Advertising"]:
+            report_lines.extend([
+                f"Marketing Leads: {float(marketing_metrics_data.get('leads', 0)):,.0f}",
+                f"Marketing Conversion Rate: {pct(marketing_metrics_data.get('conversion_rate', 0))}",
+                f"Advertising ROAS: {float(advertising_metrics_data.get('roas', 0)):.2f}x",
+                f"Advertising CPA: {money(advertising_metrics_data.get('cpa', 0))}",
+                "",
+            ])
+
+        if report_department in ["Executive Overview", "HR"]:
+            report_lines.extend([
+                f"Average Performance: {float(hr_metrics_data.get('avg_performance', 0)):.2f}/5",
+                f"Attendance: {pct(hr_metrics_data.get('avg_attendance', 0))}",
+                f"Training Hours: {float(hr_metrics_data.get('training_hours', 0)):,.0f}",
+                f"High Risk Staff: {int(hr_metrics_data.get('high_risk', 0))}",
+                "",
+            ])
+
+    if "Regional Analysis" in selected_sections:
+        regions = region_summary(filtered_data)
+        report_lines.append("REGIONAL ANALYSIS")
+
+        if not regions.empty:
+            top_region = regions.iloc[0]
+            report_lines.extend([
+                f"Strongest Region: {top_region.get('region', 'N/A')}",
+                f"Opportunity Score: {float(top_region.get('opportunity_score', 0)):.1f}",
+                f"Regional Revenue: {money(top_region.get('revenue', 0))}",
+                f"Market Status: {top_region.get('market_status', 'N/A')}",
+                "",
+            ])
+        else:
+            report_lines.extend([
+                "No regional data available for the selected report filters.",
+                "",
+            ])
+
+    if "Forecast Summary" in selected_sections:
+        forecast = linear_regression_forecast(
+            filtered_data,
+            department="Overview" if report_department == "Executive Overview" else report_department,
+            metric=report_kpi,
+            periods=6,
+            hr_department="All",
+        )
+
+        report_lines.append("FORECAST SUMMARY")
+
+        if not forecast.empty and "type" in forecast.columns:
+            forecast_rows = forecast[forecast["type"] == "Forecast"]
+            if not forecast_rows.empty:
+                final_forecast = float(forecast_rows["value"].iloc[-1])
+                accuracy = float(forecast["accuracy"].iloc[-1]) if "accuracy" in forecast.columns else 0
+                report_lines.extend([
+                    f"Forecast Metric: {report_kpi}",
+                    f"Projected Value: {format_forecast_value(report_kpi, final_forecast)}",
+                    f"Model Confidence: {accuracy:.1f}%",
+                    "",
+                ])
+            else:
+                report_lines.extend([
+                    "Forecast output was not available for the selected report configuration.",
+                    "",
+                ])
+        else:
+            report_lines.extend([
+                "Forecast output was not available for the selected report configuration.",
+                "",
+            ])
+
+    if "Recommendations" in selected_sections:
+        report_lines.append("RECOMMENDED ACTIONS")
+        for action in ai.get("actions", []):
+            report_lines.append(f"- {action}")
+        report_lines.append("")
+
+    report_text = "\n".join(report_lines)
+
+    st.text_area(
+        "Report preview",
+        report_text,
+        height=260,
+        key="report_builder_preview",
+    )
+
+    st.download_button(
+        "Download filtered report",
+        report_text,
+        file_name=f"cyber_nova_{report_department.lower().replace(' ', '_')}_report.txt",
+        mime="text/plain",
+        use_container_width=True,
+        key="report_builder_download",
+    )
 
     k = executive_kpis(data)
     lines = [
